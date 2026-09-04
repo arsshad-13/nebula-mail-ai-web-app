@@ -165,12 +165,16 @@ export interface AiSearchParams {
   fromSender?: string;
   /** Subject/body keyword */
   keyword?: string;
+  /** Number of days in the past from today (e.g., 10 for last 10 days) */
+  relativeDays?: number;
   /** ISO 8601 date (YYYY-MM-DD) — messages after this date */
   afterDate?: string;
   /** ISO 8601 date (YYYY-MM-DD) — messages before this date */
   beforeDate?: string;
   /** Filter to unread messages only */
   isUnread?: boolean;
+  /** Filter to read messages only */
+  isRead?: boolean;
   /** Maximum results (1–50) */
   maxResults?: number;
 }

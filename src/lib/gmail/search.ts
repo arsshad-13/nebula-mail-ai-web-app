@@ -7,23 +7,40 @@ import { AiSearchParams } from "@/types/ai";
 import { gmail_v1 } from "googleapis";
 
 /**
+ * Resolves a relative number of days from the current date into an ISO YYYY-MM-DD date string.
+ * Deterministic server-side calculation based on real system date.
+ */
+export function resolveRelativeDate(daysAgo: number): string {
+  const target = new Date();
+  target.setDate(target.getDate() - daysAgo);
+  const year = target.getFullYear();
+  const month = String(target.getMonth() + 1).padStart(2, "0");
+  const day = String(target.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Zod validation schema for structured AI search parameters.
  * Enforces strict typing so the LLM cannot supply arbitrary Gmail query syntax.
  */
 export const aiSearchParamsSchema = z.object({
-  folder: z.enum(["inbox", "sent"]).optional(),
-  fromSender: z.string().max(100).optional(),
-  keyword: z.string().max(200).optional(),
+  folder: z.enum(["inbox", "sent"]).optional().describe("Mailbox folder to search in ('inbox' or 'sent')"),
+  fromSender: z.string().max(100).optional().describe("Sender name or email address (e.g. 'Sarah', 'LinkedIn')"),
+  keyword: z.string().max(200).optional().describe("Subject or content search keyword"),
+  relativeDays: z.number().int().min(1).max(365).optional().describe("Number of days in the past from today (e.g. 10 for 'last 10 days', 7 for 'last 7 days', 30 for 'last 30 days')"),
   afterDate: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must follow YYYY-MM-DD format")
-    .optional(),
+    .regex(/^\d{4}[-/]\d{2}[-/]\d{2}$/, "Date must follow YYYY-MM-DD format")
+    .optional()
+    .describe("ISO date (YYYY-MM-DD) threshold. Use relativeDays instead when user mentions relative days."),
   beforeDate: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must follow YYYY-MM-DD format")
-    .optional(),
-  isUnread: z.boolean().optional(),
-  maxResults: z.number().int().min(1).max(50).default(15).optional(),
+    .regex(/^\d{4}[-/]\d{2}[-/]\d{2}$/, "Date must follow YYYY-MM-DD format")
+    .optional()
+    .describe("ISO date (YYYY-MM-DD) threshold"),
+  isUnread: z.boolean().optional().describe("Filter to unread emails only"),
+  isRead: z.boolean().optional().describe("Filter to read emails only"),
+  maxResults: z.number().int().min(1).max(50).default(20).optional().describe("Maximum number of results (default 20, max 50)"),
 });
 
 /**
@@ -40,9 +57,11 @@ export function buildGmailQuery(params: AiSearchParams): string {
     parts.push("in:inbox");
   }
 
-  // Unread filter
+  // Read / Unread filter
   if (params.isUnread) {
     parts.push("is:unread");
+  } else if (params.isRead) {
+    parts.push("is:read");
   }
 
   // Sender filter: sanitize dangerous query punctuation
@@ -53,13 +72,18 @@ export function buildGmailQuery(params: AiSearchParams): string {
     }
   }
 
-  // Strict ISO date filters (YYYY-MM-DD)
-  if (params.afterDate && /^\d{4}-\d{2}-\d{2}$/.test(params.afterDate)) {
-    parts.push(`after:${params.afterDate}`);
+  // Date filters: resolve relativeDays if provided, or use afterDate
+  let effectiveAfterDate = params.afterDate;
+  if (params.relativeDays && params.relativeDays > 0) {
+    effectiveAfterDate = resolveRelativeDate(params.relativeDays);
   }
 
-  if (params.beforeDate && /^\d{4}-\d{2}-\d{2}$/.test(params.beforeDate)) {
-    parts.push(`before:${params.beforeDate}`);
+  if (effectiveAfterDate && /^\d{4}[-/]\d{2}[-/]\d{2}$/.test(effectiveAfterDate)) {
+    parts.push(`after:${effectiveAfterDate.replace(/\//g, "-")}`);
+  }
+
+  if (params.beforeDate && /^\d{4}[-/]\d{2}[-/]\d{2}$/.test(params.beforeDate)) {
+    parts.push(`before:${params.beforeDate.replace(/\//g, "-")}`);
   }
 
   // Keyword / search term: sanitize to prevent operator breakouts

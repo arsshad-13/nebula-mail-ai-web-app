@@ -71,14 +71,20 @@ export function MailList() {
 
       {/* AI Filter Banner */}
       {aiFilterActive && (
-        <div className="mx-3 mt-3 p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-indigo-300 min-w-0">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="truncate">Filter: {aiFilterLabel || "AI Filter"}</span>
+        <div
+          id="ai-filter-banner"
+          className="mx-3 mt-3 p-3 rounded-xl bg-gradient-to-r from-indigo-950/60 to-purple-950/60 border border-indigo-500/30 text-xs flex items-center justify-between gap-2 shadow-sm"
+        >
+          <div className="flex items-center gap-2 text-indigo-300 min-w-0">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
+            <span className="font-semibold text-zinc-200 shrink-0">AI Filter:</span>
+            <span className="truncate text-indigo-200">{aiFilterLabel || "Search Results"}</span>
           </div>
           <button
+            id="ai-filter-clear-btn"
+            type="button"
             onClick={clearAiFilter}
-            className="text-xs text-indigo-400 hover:text-indigo-200 underline shrink-0 font-medium"
+            className="text-xs text-indigo-400 hover:text-indigo-200 px-2 py-0.5 rounded bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors shrink-0 font-medium border border-indigo-500/20"
           >
             Clear
           </button>
@@ -123,16 +129,37 @@ export function MailList() {
             ))}
           </div>
         ) : messages.length === 0 ? (
-          <div className="p-8 text-center text-zinc-500 space-y-2">
+          <div className="p-8 text-center text-zinc-500 space-y-3">
             <div className="w-12 h-12 mx-auto rounded-2xl bg-zinc-900/80 border border-zinc-800 flex items-center justify-center text-zinc-400">
               <Mail className="w-6 h-6" />
             </div>
-            <p className="text-sm font-medium text-zinc-400">
-              No emails in {activeFolder}
-            </p>
-            <p className="text-xs text-zinc-600">
-              Real Gmail messages will appear here once received.
-            </p>
+            {aiFilterActive ? (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-300">
+                  No matching emails found
+                </p>
+                <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                  No emails in your mailbox matched the filter &quot;{aiFilterLabel}&quot;.
+                </p>
+                <button
+                  type="button"
+                  onClick={clearAiFilter}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 text-xs font-medium border border-indigo-500/30 transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Clear filter &amp; show all
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-zinc-400">
+                  No emails in {activeFolder}
+                </p>
+                <p className="text-xs text-zinc-600">
+                  Real Gmail messages will appear here once received.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           messages.map((email: EmailMessage) => {

@@ -78,21 +78,24 @@ function renderActionPill(action: UiAction, idx: number) {
       return (
         <span
           key={idx}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-zinc-500/15 text-zinc-300 border border-zinc-500/30"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
         >
-          <CheckCircle2 className="w-3 h-3 text-zinc-400" />
-          <span>Cleared filter</span>
+          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+          <span>Filter cleared &bull; Normal mailbox restored</span>
         </span>
       );
     }
     case "set_filtered_messages": {
+      const count = action.payload.messages?.length ?? 0;
       return (
         <span
           key={idx}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"
         >
           <CheckCircle2 className="w-3 h-3 text-indigo-400" />
-          <span>Filtered messages: {action.payload.filterLabel}</span>
+          <span>
+            Filtered {count} {count === 1 ? "email" : "emails"}: &quot;{action.payload.filterLabel}&quot;
+          </span>
         </span>
       );
     }
@@ -152,9 +155,10 @@ export function AiAssistantPanel() {
   };
 
   const quickPrompts = [
+    "Show me emails from the last 10 days",
+    "Show unread emails",
     "Open compose and prepare an email to alex@example.com about the project sync",
-    "Open compose",
-    activeFolder === "inbox" ? "Switch to Sent mailbox" : "Switch to Inbox",
+    "Clear the filter",
   ];
 
   return (

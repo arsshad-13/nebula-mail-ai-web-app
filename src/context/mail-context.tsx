@@ -180,9 +180,12 @@ export function MailProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setSelectedMessage(data.message);
 
-      // Also mark as read locally in the messages list if was unread
+      // Also mark as read locally in the messages list and filtered list if was unread
       setMessages((prev) =>
         prev.map((m) => (m.id === id ? { ...m, isUnread: false } : m))
+      );
+      setFilteredMessages((prev) =>
+        prev ? prev.map((m) => (m.id === id ? { ...m, isUnread: false } : m)) : null
       );
     } catch (err) {
       console.error("Error loading email detail:", err);

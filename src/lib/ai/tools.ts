@@ -62,41 +62,83 @@ export function createAiTools(ctx: ToolContext) {
 
     search_emails: tool({
       description:
-        "Searches Gmail messages using structured parameters (never raw queries) and filters the visible mail list.",
+        "Searches Gmail messages using structured parameters (never raw queries) and filters the main mailbox list. Use for date ranges ('last 10 days'), senders ('Sarah', 'LinkedIn'), unread/read filters, or keyword queries.",
       inputSchema: aiSearchParamsSchema,
       execute: async (params) => {
-        const q = buildGmailQuery(params);
-        const messages = await searchGmailMessages(ctx.sessionId, q, params.maxResults || 15);
+        try {
+          const q = buildGmailQuery(params);
+          const messages = await searchGmailMessages(ctx.sessionId, q, params.maxResults || 20);
 
-        const labelParts: string[] = [];
-        if (params.folder) labelParts.push(`in:${params.folder}`);
-        if (params.fromSender) labelParts.push(`from:${params.fromSender}`);
-        if (params.keyword) labelParts.push(`"${params.keyword}"`);
-        if (params.afterDate) labelParts.push(`after:${params.afterDate}`);
-        if (params.beforeDate) labelParts.push(`before:${params.beforeDate}`);
-        if (params.isUnread) labelParts.push("unread");
-        const filterLabel = labelParts.join(" ") || "Search Results";
+          // Build clean, human-readable filter label for the UI banner
+          const labelParts: string[] = [];
+          if (params.relativeDays) {
+            labelParts.push(`Last ${params.relativeDays} days`);
+          } else if (params.afterDate) {
+            labelParts.push(`After ${params.afterDate}`);
+          }
+          if (params.beforeDate) {
+            labelParts.push(`Before ${params.beforeDate}`);
+          }
+          if (params.fromSender) {
+            labelParts.push(`From: ${params.fromSender}`);
+          }
+          if (params.keyword) {
+            labelParts.push(`"${params.keyword}"`);
+          }
+          if (params.isUnread) {
+            labelParts.push("Unread");
+          } else if (params.isRead) {
+            labelParts.push("Read");
+          }
+          if (params.folder) {
+            labelParts.push(`in ${params.folder}`);
+          }
+          const filterLabel = labelParts.length > 0 ? labelParts.join(", ") : "Search Results";
 
-        ctx.recordAction({
-          type: "set_filtered_messages",
-          payload: {
-            messages,
+          ctx.recordAction({
+            type: "set_filtered_messages",
+            payload: {
+              messages,
+              filterLabel,
+            },
+          });
+
+          return {
+            success: true,
+            count: messages.length,
             filterLabel,
-          },
-        });
+            messages: messages.map((m) => ({
+              id: m.id,
+              subject: m.subject,
+              from: m.from.name ? `${m.from.name} <${m.from.email}>` : m.from.email,
+              date: m.date,
+              snippet: m.snippet,
+              isUnread: m.isUnread,
+            })),
+          };
+        } catch (err: unknown) {
+          console.error("Gmail search tool error:", err);
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : "Failed to search Gmail messages",
+            count: 0,
+          };
+        }
+      },
+    }),
 
+    clear_filter: tool({
+      description:
+        "Clears any active search or mailbox filter, restoring the normal full mailbox view. Call when the user requests to clear filter, reset search, or show all emails again.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        ctx.recordAction({
+          type: "clear_filter",
+          payload: {},
+        });
         return {
           success: true,
-          count: messages.length,
-          filterLabel,
-          messages: messages.map((m) => ({
-            id: m.id,
-            subject: m.subject,
-            from: m.from.name ? `${m.from.name} <${m.from.email}>` : m.from.email,
-            date: m.date,
-            snippet: m.snippet,
-            isUnread: m.isUnread,
-          })),
+          message: "Filter cleared. All mailbox emails are now shown in the main view.",
         };
       },
     }),
