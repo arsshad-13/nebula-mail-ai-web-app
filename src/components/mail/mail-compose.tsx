@@ -4,7 +4,7 @@ import React, { useCallback, useRef, useEffect } from "react";
 import { useMail } from "@/context/mail-context";
 
 /**
- * MailCompose — Compose modal for Stage 3.
+ * MailCompose — Compose modal for Stage 3 + Stage 4E.
  *
  * Design decisions:
  * - Stable DOM IDs on all interactive fields so Stage 4 AI can target them.
@@ -14,9 +14,19 @@ import { useMail } from "@/context/mail-context";
  *   manually entered text in Stage 4.
  * - From address is NOT shown and NOT sent by the client; it is derived server-side.
  * - Modal traps focus (Escape to close) for accessibility.
+ * - Stage 4E: When pendingAiSend is set, an AI confirmation banner replaces the normal footer.
+ *   The existing #compose-send-btn manual path remains untouched.
  */
 export function MailCompose() {
-  const { compose, closeCompose, updateComposeField, sendMail } = useMail();
+  const {
+    compose,
+    closeCompose,
+    updateComposeField,
+    sendMail,
+    pendingAiSend,
+    confirmAiSend,
+    cancelAiSend,
+  } = useMail();
   const toRef = useRef<HTMLInputElement>(null);
 
   // Focus the To field when the modal opens
@@ -192,54 +202,171 @@ export function MailCompose() {
             </div>
           )}
 
-          {/* Footer */}
-          <div className="flex items-center justify-between px-5 pb-4 pt-1">
-            <p className="text-xs" style={{ color: "var(--text-muted, #a0a0b8)" }}>
-              From address is determined by your connected account.
-            </p>
-            <button
-              id="compose-send-btn"
-              data-compose-role="send"
-              type="button"
-              onClick={handleSend}
-              disabled={compose.isSending || !compose.to.value.trim() || !compose.subject.value.trim()}
-              aria-label="Send email"
-              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-all"
+          {/* Stage 4E — AI Send Confirmation Banner */}
+          {pendingAiSend ? (
+            <div
+              id="ai-send-confirmation"
+              role="alertdialog"
+              aria-labelledby="ai-send-confirmation-title"
+              aria-modal="false"
+              className="mx-4 mb-4 mt-1 rounded-2xl overflow-hidden"
               style={{
-                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-                boxShadow: compose.isSending ? "none" : "0 4px 14px rgba(99,102,241,0.4)",
+                border: "1px solid rgba(99,102,241,0.35)",
+                background: "rgba(99,102,241,0.08)",
               }}
             >
-              {compose.isSending ? (
-                <>
-                  <span
-                    className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
-                    aria-hidden="true"
-                  />
-                  Sending…
-                </>
-              ) : (
-                <>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M22 2L11 13" />
-                    <path d="M22 2L15 22 11 13 2 9l20-7z" />
-                  </svg>
-                  Send
-                </>
-              )}
-            </button>
-          </div>
+              {/* Banner header */}
+              <div
+                className="px-4 py-2.5 flex items-center gap-2"
+                style={{
+                  background: "linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(139,92,246,0.2) 100%)",
+                  borderBottom: "1px solid rgba(99,102,241,0.2)",
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ color: "#a5b4fc", flexShrink: 0 }}
+                  aria-hidden="true"
+                >
+                  <path d="M22 2L11 13" />
+                  <path d="M22 2L15 22 11 13 2 9l20-7z" />
+                </svg>
+                <span
+                  id="ai-send-confirmation-title"
+                  className="text-xs font-semibold"
+                  style={{ color: "#c7d2fe" }}
+                >
+                  Ready to send this email
+                </span>
+              </div>
+
+              {/* Recipient / Subject / Preview */}
+              <div className="px-4 py-3 space-y-1.5">
+                <div className="flex items-baseline gap-2 text-xs">
+                  <span className="font-medium shrink-0" style={{ color: "#a0a0b8", minWidth: "3.5rem" }}>To:</span>
+                  <span className="break-all" style={{ color: "#e0e0f0" }}>{pendingAiSend.to}</span>
+                </div>
+                <div className="flex items-baseline gap-2 text-xs">
+                  <span className="font-medium shrink-0" style={{ color: "#a0a0b8", minWidth: "3.5rem" }}>Subject:</span>
+                  <span className="break-words" style={{ color: "#e0e0f0" }}>{pendingAiSend.subject}</span>
+                </div>
+                {pendingAiSend.bodyPreview && (
+                  <div className="mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <p className="text-[11px] mb-1 font-medium" style={{ color: "#a0a0b8" }}>Message preview:</p>
+                    <p
+                      className="text-xs leading-relaxed whitespace-pre-wrap break-words"
+                      style={{ color: "#c0c0d8" }}
+                    >
+                      {pendingAiSend.bodyPreview.length > 200
+                        ? pendingAiSend.bodyPreview.slice(0, 200) + "…"
+                        : pendingAiSend.bodyPreview}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Action buttons */}
+              <div
+                className="flex items-center justify-end gap-2 px-4 py-3"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                <button
+                  id="ai-send-cancel-btn"
+                  type="button"
+                  onClick={() => void cancelAiSend()}
+                  disabled={compose.isSending}
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
+                  style={{
+                    color: "#a0a0b8",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  id="ai-send-confirm-btn"
+                  type="button"
+                  onClick={() => void confirmAiSend()}
+                  disabled={compose.isSending}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition-all"
+                  style={{
+                    background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                    boxShadow: compose.isSending ? "none" : "0 2px 10px rgba(99,102,241,0.4)",
+                  }}
+                >
+                  {compose.isSending ? (
+                    <>
+                      <span
+                        className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                        aria-hidden="true"
+                      />
+                      Sending…
+                    </>
+                  ) : (
+                    "Confirm & Send"
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Normal manual send footer — Stage 3 path UNCHANGED */
+            <div className="flex items-center justify-between px-5 pb-4 pt-1">
+              <p className="text-xs" style={{ color: "var(--text-muted, #a0a0b8)" }}>
+                From address is determined by your connected account.
+              </p>
+              <button
+                id="compose-send-btn"
+                data-compose-role="send"
+                type="button"
+                onClick={handleSend}
+                disabled={compose.isSending || !compose.to.value.trim() || !compose.subject.value.trim()}
+                aria-label="Send email"
+                className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-all"
+                style={{
+                  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                  boxShadow: compose.isSending ? "none" : "0 4px 14px rgba(99,102,241,0.4)",
+                }}
+              >
+                {compose.isSending ? (
+                  <>
+                    <span
+                      className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                      aria-hidden="true"
+                    />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M22 2L11 13" />
+                      <path d="M22 2L15 22 11 13 2 9l20-7z" />
+                    </svg>
+                    Send
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

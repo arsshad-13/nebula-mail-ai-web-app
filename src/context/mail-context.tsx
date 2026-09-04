@@ -12,6 +12,13 @@ import { EmailMessage, MailFolder, MailLabel, ComposeState, SendMailRequest } fr
 import { UiAction } from "@/types/ai";
 import { useAuth } from "./auth-context";
 
+export interface PendingAiSend {
+  token: string;
+  to: string;
+  subject: string;
+  bodyPreview: string;
+}
+
 interface MailContextState {
   activeFolder: MailFolder;
   messages: EmailMessage[];
@@ -38,6 +45,10 @@ interface MailContextState {
   aiFilterActive: boolean;
   aiFilterLabel: string | null;
   clearAiFilter: () => void;
+  // Stage 4E: AI Send Confirmation State
+  pendingAiSend: PendingAiSend | null;
+  confirmAiSend: () => Promise<boolean>;
+  cancelAiSend: () => Promise<void>;
 }
 
 const EMPTY_COMPOSE: ComposeState = {
@@ -69,6 +80,9 @@ export function MailProvider({ children }: { children: ReactNode }) {
   const [aiFilterActive, setAiFilterActive] = useState<boolean>(false);
   const [aiFilterLabel, setAiFilterLabel] = useState<string | null>(null);
   const [filteredMessages, setFilteredMessages] = useState<EmailMessage[] | null>(null);
+
+  // Stage 4E: AI Send Confirmation State
+  const [pendingAiSend, setPendingAiSend] = useState<PendingAiSend | null>(null);
 
   const fetchMessages = useCallback(
     async (folder: MailFolder) => {
@@ -209,12 +223,81 @@ export function MailProvider({ children }: { children: ReactNode }) {
   // ---------------------------------------------------------------------------
 
   const openCompose = useCallback(() => {
+    setPendingAiSend(null);
     setCompose({ ...EMPTY_COMPOSE, isOpen: true });
   }, []);
 
   const closeCompose = useCallback(() => {
+    setPendingAiSend(null);
     setCompose(EMPTY_COMPOSE);
   }, []);
+
+  const cancelAiSend = useCallback(async () => {
+    if (!pendingAiSend) return;
+
+    const token = pendingAiSend.token;
+    setPendingAiSend(null);
+
+    try {
+      await fetch("/api/ai/confirm-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, cancel: true }),
+      });
+    } catch (err) {
+      console.error("Failed to notify server of send cancellation:", err);
+    }
+  }, [pendingAiSend]);
+
+  const confirmAiSend = useCallback(async (): Promise<boolean> => {
+    if (!pendingAiSend) return false;
+
+    setCompose((prev) => ({
+      ...prev,
+      isSending: true,
+      sendError: null,
+      sendSuccess: false,
+    }));
+
+    try {
+      const res = await fetch("/api/ai/confirm-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: pendingAiSend.token }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errMsg = data.error || "Failed to send email. Please try again.";
+        setCompose((prev) => ({
+          ...prev,
+          isSending: false,
+          sendError: errMsg,
+        }));
+        return false;
+      }
+
+      // Success — clear pending send and close compose
+      setPendingAiSend(null);
+      setCompose(EMPTY_COMPOSE);
+
+      // If user is viewing Sent, refresh immediately
+      if (activeFolder === "sent") {
+        void fetchMessages("sent");
+      }
+
+      return true;
+    } catch (err) {
+      const errMsg = (err as Error).message || "Network error. Please try again.";
+      setCompose((prev) => ({
+        ...prev,
+        isSending: false,
+        sendError: errMsg,
+      }));
+      return false;
+    }
+  }, [pendingAiSend, activeFolder, fetchMessages]);
 
   const updateComposeField = useCallback(
     (field: keyof Pick<ComposeState, "to" | "subject" | "body">, value: string) => {
@@ -370,6 +453,25 @@ export function MailProvider({ children }: { children: ReactNode }) {
               break;
             }
 
+            case "request_send_confirmation": {
+              if (action.payload && action.payload.token) {
+                setPendingAiSend(action.payload);
+                setCompose((prev) => ({
+                  ...prev,
+                  isOpen: true,
+                  to: {
+                    value: action.payload.to || prev.to.value,
+                    dirty: false,
+                  },
+                  subject: {
+                    value: action.payload.subject || prev.subject.value,
+                    dirty: false,
+                  },
+                }));
+              }
+              break;
+            }
+
             default: {
               console.warn(
                 "Unknown AI action type:",
@@ -412,6 +514,9 @@ export function MailProvider({ children }: { children: ReactNode }) {
         aiFilterActive,
         aiFilterLabel,
         clearAiFilter,
+        pendingAiSend,
+        confirmAiSend,
+        cancelAiSend,
       }}
     >
       {children}

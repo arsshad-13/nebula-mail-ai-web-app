@@ -3,6 +3,7 @@ import { z } from "zod";
 import { UiAction, AppContext } from "@/types/ai";
 import { searchGmailMessages, buildGmailQuery, aiSearchParamsSchema } from "@/lib/gmail/search";
 import { getMessageDetail } from "@/lib/gmail/service";
+import { createPendingSend } from "@/lib/ai/pending-sends";
 
 export interface ToolContext {
   sessionId: string;
@@ -285,6 +286,246 @@ export function createAiTools(ctx: ToolContext) {
         return {
           success: true,
           message: `Navigated to ${folder} mailbox.`,
+        };
+      },
+    }),
+
+    prepare_reply: tool({
+      description:
+        "Prepares a reply draft to the currently selected email. Opens the Compose modal with the recipient, Re: subject, and reply body populated for user review. Does NOT send the email and does NOT authorize sending.",
+      inputSchema: z.object({
+        body: z.string().max(10000).describe("The reply message body to draft"),
+      }),
+      execute: async ({ body }) => {
+        const selected = ctx.appContext?.selectedEmail;
+        if (!selected) {
+          return {
+            success: false,
+            message:
+              "No email is currently selected. Please open or select an email before preparing a reply.",
+          };
+        }
+
+        // Determine recipient: if currently in Sent folder, reply to the recipient; otherwise reply to the sender
+        const replyTo =
+          ctx.appContext?.currentFolder === "sent" &&
+          selected.to &&
+          selected.to.length > 0
+            ? selected.to[0].email
+            : selected.from.email;
+
+        // Determine subject avoiding duplicate Re: prefixes
+        const rawSubject = selected.subject || "(No Subject)";
+        const replySubject = /^re:\s*/i.test(rawSubject)
+          ? rawSubject
+          : `Re: ${rawSubject}`;
+
+        // Format conventional quoted reference block
+        const quoteHeader = `\n\nOn ${selected.date}, ${
+          selected.from.name || selected.from.email
+        } wrote:\n> ${selected.snippet}`;
+        const fullReplyBody = `${body.trim()}${quoteHeader}`;
+
+        // Populate Compose modal for user review (NO send authorization)
+        ctx.recordAction({
+          type: "open_compose",
+          payload: {
+            to: replyTo,
+            subject: replySubject,
+            body: fullReplyBody,
+          },
+        });
+
+        return {
+          success: true,
+          to: replyTo,
+          subject: replySubject,
+          message: `Prepared reply draft to ${replyTo} with subject "${replySubject}". The Compose window is open for your review. You can edit it, send it manually, or tell me 'Send it' when ready.`,
+        };
+      },
+    }),
+
+    prepare_forward: tool({
+      description:
+        "Prepares a forward draft of the currently selected email to a designated recipient. Opens the Compose modal with the destination, Fwd: subject, and original email context populated for user review. Does NOT send the email and does NOT authorize sending.",
+      inputSchema: z.object({
+        to: z
+          .string()
+          .max(320)
+          .describe("Destination recipient email address (e.g. 'colleague@example.com')"),
+        comments: z
+          .string()
+          .max(10000)
+          .optional()
+          .describe("Optional introductory remarks or note to place above the forwarded message"),
+      }),
+      execute: async ({ to, comments }) => {
+        const selected = ctx.appContext?.selectedEmail;
+        if (!selected) {
+          return {
+            success: false,
+            message:
+              "No email is currently selected. Please open or select an email before preparing a forward.",
+          };
+        }
+
+        const cleanTo = to.trim();
+        // Validation: reject CRLF injection
+        if (cleanTo.includes("\r") || cleanTo.includes("\n")) {
+          return {
+            success: false,
+            message: "Recipient address contains invalid characters (CR/LF not allowed).",
+          };
+        }
+        // Basic RFC email format check
+        if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(cleanTo)) {
+          return {
+            success: false,
+            message: `"${cleanTo}" is not a valid email address.`,
+          };
+        }
+
+        // Determine subject avoiding duplicate Fwd: prefixes
+        const rawSubject = selected.subject || "(No Subject)";
+        const fwdSubject = /^fwd:\s*/i.test(rawSubject)
+          ? rawSubject
+          : `Fwd: ${rawSubject}`;
+
+        // Retrieve original message body from Gmail service if available, or fallback to snippet
+        let originalBody = selected.snippet;
+        try {
+          const detail = await getMessageDetail(ctx.sessionId, selected.id);
+          if (detail.bodyText) {
+            originalBody = detail.bodyText;
+          }
+        } catch {
+          // Fallback to sanitized snippet
+        }
+
+        const fwdBlock = [
+          `---------- Forwarded message ---------`,
+          `From: ${
+            selected.from.name
+              ? `${selected.from.name} <${selected.from.email}>`
+              : selected.from.email
+          }`,
+          `Date: ${selected.date}`,
+          `Subject: ${selected.subject}`,
+          `To: ${selected.to
+            .map((t) => (t.name ? `${t.name} <${t.email}>` : t.email))
+            .join(", ")}`,
+          ``,
+          originalBody,
+        ].join("\n");
+
+        const fullFwdBody =
+          comments && comments.trim()
+            ? `${comments.trim()}\n\n${fwdBlock}`
+            : fwdBlock;
+
+        // Populate Compose modal for user review (NO send authorization)
+        ctx.recordAction({
+          type: "open_compose",
+          payload: {
+            to: cleanTo,
+            subject: fwdSubject,
+            body: fullFwdBody,
+          },
+        });
+
+        return {
+          success: true,
+          to: cleanTo,
+          subject: fwdSubject,
+          message: `Prepared forward draft to ${cleanTo} with subject "${fwdSubject}". The Compose window is open for your review. You can edit it, send it manually, or tell me 'Send it' when ready.`,
+        };
+      },
+    }),
+
+    request_send_confirmation: tool({
+      description:
+        "Requests explicit human confirmation to send an email. MUST ONLY be called when the user explicitly instructs the AI to send the draft (e.g. 'Send it', 'Send the email', 'Yes, send it now'). Never call this during draft preparation.",
+      inputSchema: z.object({
+        to: z
+          .string()
+          .max(320)
+          .optional()
+          .describe("Recipient address (defaults to current compose To if omitted)"),
+        subject: z
+          .string()
+          .max(998)
+          .optional()
+          .describe("Subject line (defaults to current compose Subject if omitted)"),
+        body: z
+          .string()
+          .max(100000)
+          .optional()
+          .describe("Email body text (defaults to current compose draft if omitted)"),
+      }),
+      execute: async ({ to, subject, body }) => {
+        const effectiveTo = to?.trim() || ctx.appContext?.composeTo?.trim() || "";
+        const effectiveSubject =
+          subject?.trim() || ctx.appContext?.composeSubject?.trim() || "";
+        const effectiveBody = body || "";
+
+        if (!effectiveTo) {
+          return {
+            success: false,
+            message: "Cannot request send confirmation: Recipient ('To') address is missing.",
+          };
+        }
+        if (!effectiveSubject) {
+          return {
+            success: false,
+            message: "Cannot request send confirmation: Subject line is missing.",
+          };
+        }
+
+        // Reject CRLF injection
+        if (effectiveTo.includes("\r") || effectiveTo.includes("\n")) {
+          return {
+            success: false,
+            message: "Recipient address contains invalid characters (CR/LF not allowed).",
+          };
+        }
+        if (effectiveSubject.includes("\r") || effectiveSubject.includes("\n")) {
+          return {
+            success: false,
+            message: "Subject line contains invalid characters (CR/LF not allowed).",
+          };
+        }
+
+        // Validate recipient format
+        if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(effectiveTo)) {
+          return {
+            success: false,
+            message: `"${effectiveTo}" is not a valid email address.`,
+          };
+        }
+
+        // Create server-side pending send authorization (session-bound, 5-minute TTL, single-use)
+        const pending = createPendingSend(ctx.sessionId, {
+          to: effectiveTo,
+          subject: effectiveSubject,
+          body: effectiveBody,
+        });
+
+        // Record UI action to display confirmation prompt
+        ctx.recordAction({
+          type: "request_send_confirmation",
+          payload: {
+            token: pending.token,
+            to: effectiveTo,
+            subject: effectiveSubject,
+            bodyPreview: effectiveBody.slice(0, 160),
+          },
+        });
+
+        return {
+          success: true,
+          to: effectiveTo,
+          subject: effectiveSubject,
+          message: `Ready to send this email to ${effectiveTo} with subject "${effectiveSubject}". Please click 'Confirm & Send' in the confirmation prompt to send, or 'Cancel' to discard.`,
         };
       },
     }),

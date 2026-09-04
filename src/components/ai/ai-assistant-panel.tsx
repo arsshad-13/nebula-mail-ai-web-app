@@ -99,6 +99,19 @@ function renderActionPill(action: UiAction, idx: number) {
         </span>
       );
     }
+    case "request_send_confirmation": {
+      return (
+        <span
+          key={idx}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30"
+        >
+          <Send className="w-3 h-3 text-amber-400" />
+          <span>
+            Send confirmation requested — To: {action.payload.to}
+          </span>
+        </span>
+      );
+    }
     default:
       return null;
   }

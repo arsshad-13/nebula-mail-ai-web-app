@@ -84,6 +84,21 @@ export interface ClearFilterAction {
 }
 
 /**
+ * Request explicit human confirmation before sending an email.
+ * Includes a server-generated single-use token bound to the authenticated session.
+ * The full authoritative message remains on the server.
+ */
+export interface RequestSendConfirmationAction {
+  type: "request_send_confirmation";
+  payload: {
+    token: string;
+    to: string;
+    subject: string;
+    bodyPreview: string;
+  };
+}
+
+/**
  * Discriminated union of all actions the server can instruct the client to perform.
  * Invalid action types are impossible to represent due to the discriminated union.
  */
@@ -93,7 +108,8 @@ export type UiAction =
   | SetFilteredMessagesAction
   | SelectMessageAction
   | NavigateMailboxAction
-  | ClearFilterAction;
+  | ClearFilterAction
+  | RequestSendConfirmationAction;
 
 // ---------------------------------------------------------------------------
 // App Context — sent from client to /api/ai/chat with each request
