@@ -85,7 +85,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
   const [pendingAiSend, setPendingAiSend] = useState<PendingAiSend | null>(null);
 
   const fetchMessages = useCallback(
-    async (folder: MailFolder) => {
+    async (folder: MailFolder, isSilent: boolean = false) => {
       if (!isAuthenticated) {
         setMessages([]);
         setSelectedMessage(null);
@@ -93,8 +93,10 @@ export function MailProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setIsLoading(true);
-      setError(null);
+      if (!isSilent) {
+        setIsLoading(true);
+        setError(null);
+      }
 
       try {
         const res = await fetch(`/api/gmail?folder=${folder}&maxResults=25`);
@@ -121,10 +123,14 @@ export function MailProvider({ children }: { children: ReactNode }) {
         ]);
       } catch (err) {
         console.error(`Error loading ${folder} emails:`, err);
-        setError((err as Error).message || "An unexpected error occurred.");
-        setMessages([]);
+        if (!isSilent) {
+          setError((err as Error).message || "An unexpected error occurred.");
+          setMessages([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (!isSilent) {
+          setIsLoading(false);
+        }
       }
     },
     [isAuthenticated]
@@ -170,6 +176,52 @@ export function MailProvider({ children }: { children: ReactNode }) {
 
     return () => {
       isCancelled = true;
+    };
+  }, [isAuthenticated, activeFolder, fetchMessages]);
+
+  // Stage 4F-1: Real-Time Mail Stream (SSE) & Gmail Watch Registration
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // 1. Attempt watch registration/renewal if configured on server
+    fetch("/api/gmail/watch", { method: "POST" }).catch((err) => {
+      console.debug("[mail-context] Watch registration ping error:", err);
+    });
+
+    // 2. Open Server-Sent Events stream for real-time mailbox notifications
+    const eventSource = new EventSource("/api/mail/stream");
+
+    eventSource.addEventListener("connected", (e) => {
+      console.log("[mail-context] Real-time mail stream connected:", e.data);
+    });
+
+    const handleMailChange = () => {
+      console.log("[mail-context] Real-time mail change received.");
+      if (activeFolder === "inbox") {
+        void fetchMessages("inbox", true);
+      } else {
+        // Update unread count for INBOX label without disturbing current folder view
+        fetch(`/api/gmail?folder=inbox&maxResults=25`)
+          .then((r) => r.json())
+          .then((d) => {
+            const count = (d.messages || []).filter((m: EmailMessage) => m.isUnread).length;
+            setLabels((prev) =>
+              prev.map((l) => (l.id === "INBOX" ? { ...l, unreadCount: count } : l))
+            );
+          })
+          .catch(() => {});
+      }
+    };
+
+    eventSource.addEventListener("mail:new", handleMailChange);
+    eventSource.addEventListener("mail:refresh", handleMailChange);
+
+    eventSource.onerror = (err) => {
+      console.warn("[mail-context] Real-time stream error / reconnecting:", err);
+    };
+
+    return () => {
+      eventSource.close();
     };
   }, [isAuthenticated, activeFolder, fetchMessages]);
 

@@ -37,6 +37,9 @@ yarn-error.log*
 # server session store
 /.sessions/
 
+# gmail real-time sync state
+/.sync-state/
+
 # vercel
 .vercel
 
