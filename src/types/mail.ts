@@ -27,6 +27,7 @@ export interface EmailMessage {
   bodyHtml?: string;
   bodyText?: string;
   date: string;
+  internalDate?: string;
   isUnread: boolean;
   isStarred: boolean;
   labelIds: string[];

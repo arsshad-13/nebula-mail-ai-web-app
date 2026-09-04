@@ -70,7 +70,7 @@ function renderActionPill(action: UiAction, idx: number) {
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/15 text-blue-300 border border-blue-500/30"
         >
           <Mail className="w-3 h-3 text-blue-400" />
-          <span>Selected email</span>
+          <span>Opened email</span>
         </span>
       );
     }

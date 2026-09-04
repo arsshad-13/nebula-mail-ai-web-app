@@ -1,11 +1,13 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { UiAction } from "@/types/ai";
+import { UiAction, AppContext } from "@/types/ai";
 import { searchGmailMessages, buildGmailQuery, aiSearchParamsSchema } from "@/lib/gmail/search";
+import { getMessageDetail } from "@/lib/gmail/service";
 
 export interface ToolContext {
   sessionId: string;
   recordAction: (action: UiAction) => void;
+  appContext?: AppContext;
 }
 
 /**
@@ -143,6 +145,88 @@ export function createAiTools(ctx: ToolContext) {
       },
     }),
 
+    open_latest_email: tool({
+      description:
+        "Finds and opens the latest matching real Gmail email in the detail view. Searches Gmail deterministically server-side, selects the newest message using trusted Gmail timestamps, and opens it. Use for requests like 'Open the latest email', 'Open the latest email from David', 'Open the email from Sarah', 'Open the latest email in Sent'.",
+      inputSchema: z.object({
+        fromSender: z
+          .string()
+          .max(100)
+          .optional()
+          .describe("Sender name or email address (e.g. 'David', 'LinkedIn', 'Sarah')"),
+        keyword: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Subject or body keyword to match"),
+        folder: z
+          .enum(["inbox", "sent"])
+          .optional()
+          .describe("Mailbox folder ('inbox' or 'sent'). If omitted, defaults to the currently active folder."),
+      }),
+      execute: async ({ fromSender, keyword, folder }) => {
+        try {
+          const targetFolder = folder || ctx.appContext?.currentFolder || "inbox";
+          const query = buildGmailQuery({
+            folder: targetFolder,
+            fromSender,
+            keyword,
+          });
+
+          const messages = await searchGmailMessages(ctx.sessionId, query, 10);
+          if (!messages || messages.length === 0) {
+            return {
+              success: false,
+              found: false,
+              message: `No matching email found${fromSender ? ` from "${fromSender}"` : ""}${keyword ? ` with keyword "${keyword}"` : ""} in ${targetFolder}.`,
+            };
+          }
+
+          // Deterministic newest-first selection based on trusted Gmail internalDate timestamps
+          const sorted = [...messages].sort((a, b) => {
+            const timeA = a.internalDate ? parseInt(a.internalDate, 10) : 0;
+            const timeB = b.internalDate ? parseInt(b.internalDate, 10) : 0;
+            return timeB - timeA;
+          });
+          const newest = sorted[0];
+
+          // If navigating to a different folder is required, record navigation first
+          if (ctx.appContext && ctx.appContext.currentFolder !== targetFolder) {
+            ctx.recordAction({
+              type: "navigate_mailbox",
+              payload: { folder: targetFolder },
+            });
+          }
+
+          // Only record selection if not already selected
+          if (ctx.appContext?.selectedEmail?.id !== newest.id) {
+            ctx.recordAction({
+              type: "select_message",
+              payload: { messageId: newest.id },
+            });
+          }
+
+          return {
+            success: true,
+            found: true,
+            messageId: newest.id,
+            subject: newest.subject,
+            from: newest.from.name ? `${newest.from.name} <${newest.from.email}>` : newest.from.email,
+            date: newest.date,
+            folder: targetFolder,
+            message: `Opened latest email: "${newest.subject}" from ${newest.from.name || newest.from.email}.`,
+          };
+        } catch (err: unknown) {
+          console.error("open_latest_email error:", err);
+          return {
+            success: false,
+            found: false,
+            error: err instanceof Error ? err.message : "Failed to retrieve the latest email.",
+          };
+        }
+      },
+    }),
+
     open_email: tool({
       description:
         "Selects and opens an email in the detail view by its validated Gmail message ID.",
@@ -158,14 +242,33 @@ export function createAiTools(ctx: ToolContext) {
           .describe("The Gmail message ID to display in detail pane"),
       }),
       execute: async ({ messageId }) => {
-        ctx.recordAction({
-          type: "select_message",
-          payload: { messageId },
-        });
-        return {
-          success: true,
-          message: `Opened email ${messageId}.`,
-        };
+        try {
+          // If already selected, do not emit redundant select action
+          if (ctx.appContext?.selectedEmail?.id === messageId) {
+            return {
+              success: true,
+              message: `Email ${messageId} is already open in the detail pane.`,
+            };
+          }
+
+          // Validate server-side that the message actually exists in Gmail
+          await getMessageDetail(ctx.sessionId, messageId);
+
+          ctx.recordAction({
+            type: "select_message",
+            payload: { messageId },
+          });
+          return {
+            success: true,
+            message: `Opened email ${messageId}.`,
+          };
+        } catch (err: unknown) {
+          console.error(`Validation failed for messageId "${messageId}":`, err);
+          return {
+            success: false,
+            error: "Email not found or invalid message ID. Cannot open email.",
+          };
+        }
       },
     }),
 

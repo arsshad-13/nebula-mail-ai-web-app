@@ -90,12 +90,29 @@ export async function POST(request: NextRequest) {
     // 4. Initialize action collector and typed server-side tools
     const recordedActions: UiAction[] = [];
     const recordAction = (action: UiAction) => {
+      if (
+        action.type === "navigate_mailbox" &&
+        recordedActions.some(
+          (a) => a.type === "navigate_mailbox" && a.payload.folder === action.payload.folder
+        )
+      ) {
+        return;
+      }
+      if (
+        action.type === "select_message" &&
+        recordedActions.some(
+          (a) => a.type === "select_message" && a.payload.messageId === action.payload.messageId
+        )
+      ) {
+        return;
+      }
       recordedActions.push(action);
     };
 
     const tools = createAiTools({
       sessionId,
       recordAction,
+      appContext,
     });
 
     // 5. Initialize isolated AI provider
@@ -168,12 +185,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // AI Provider failure
+    // AI Provider Authentication failure
     if (
+      lower.includes("openrouter_api_key") ||
+      (lower.includes("openrouter") &&
+        (lower.includes("unauthorized") ||
+          lower.includes("invalid api key") ||
+          lower.includes("invalid key") ||
+          lower.includes("user not found")))
+    ) {
+      return NextResponse.json(
+        { error: "AI authentication failed. Check OPENROUTER_API_KEY server configuration." },
+        { status: 401 }
+      );
+    }
+
+    // AI Provider failure & unavailable model errors
+    if (
+      lower.includes("openrouter") ||
       lower.includes("gemini_api_key") ||
       lower.includes("ai provider") ||
       lower.includes("api key") ||
       lower.includes("model not found") ||
+      lower.includes("no available model") ||
+      lower.includes("no endpoints") ||
+      lower.includes("free-model") ||
+      lower.includes("temporarily unavailable") ||
       lower.includes("fetch failed")
     ) {
       return NextResponse.json(

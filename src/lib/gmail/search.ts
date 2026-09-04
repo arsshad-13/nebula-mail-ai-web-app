@@ -136,6 +136,7 @@ function mapGmailSearchMessageToDomain(msg: gmail_v1.Schema$Message): EmailMessa
     subject,
     snippet: msg.snippet ? sanitizeHtml(msg.snippet, { allowedTags: [] }) : "",
     date: formattedDate,
+    internalDate: msg.internalDate || undefined,
     isUnread,
     isStarred,
     labelIds,

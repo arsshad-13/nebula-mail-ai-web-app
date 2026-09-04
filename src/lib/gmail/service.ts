@@ -203,6 +203,7 @@ function mapGmailMessageToDomain(
     bodyHtml,
     bodyText,
     date: formattedDate,
+    internalDate: msg.internalDate || undefined,
     isUnread,
     isStarred,
     labelIds,
