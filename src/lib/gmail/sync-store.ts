@@ -22,7 +22,9 @@ export interface MailboxSyncState {
   updatedAt: string;
 }
 
-const SYNC_DIR = path.join(process.cwd(), ".sync-state");
+const SYNC_DIR = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR, ".sync-state")
+  : path.join(process.cwd(), ".sync-state");
 let dirEnsured = false;
 
 /** In-memory cache so repeated reads within the same process avoid FS I/O */

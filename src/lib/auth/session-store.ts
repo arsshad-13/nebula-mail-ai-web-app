@@ -3,7 +3,9 @@ import path from "path";
 import crypto from "crypto";
 import { AuthUser, GoogleTokens, ServerSession } from "@/types/auth";
 
-const SESSIONS_DIR = path.join(process.cwd(), ".sessions");
+const SESSIONS_DIR = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR, ".sessions")
+  : path.join(process.cwd(), ".sessions");
 
 // In-memory cache for fast lookups
 const memoryStore = new Map<string, ServerSession>();

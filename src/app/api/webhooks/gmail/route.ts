@@ -168,7 +168,9 @@ async function findSessionByEmail(email: string) {
   // Try common session IDs from the file system
   const fs = await import("fs/promises");
   const path = await import("path");
-  const SESSIONS_DIR = path.join(process.cwd(), ".sessions");
+  const SESSIONS_DIR = process.env.DATA_DIR
+    ? path.join(process.env.DATA_DIR, ".sessions")
+    : path.join(process.cwd(), ".sessions");
 
   try {
     const files = await fs.readdir(SESSIONS_DIR);
