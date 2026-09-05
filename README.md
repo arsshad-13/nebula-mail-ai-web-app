@@ -48,6 +48,60 @@ The demo covers the key hiring-task requirements:
 
 ---
 
+## Live Deployment
+
+- **Live Application**: [https://nebula-mail-ai-web-app.onrender.com](https://nebula-mail-ai-web-app.onrender.com)
+- **Deployment Branch**: `main`
+
+### Deployment Stack
+
+- **Hosting**: Render
+- **Application**: Next.js 16.3.4
+- **Runtime**: Node.js
+- **Database**: None — Gmail remains the source of truth
+- **Email Provider**: Google Gmail API
+- **Real-Time Sync**: Gmail Watch + Google Cloud Pub/Sub + Server-Sent Events (SSE)
+- **AI Provider**: OpenRouter
+
+The deployed application supports real Google OAuth 2.0 authentication, mailbox operations (Inbox, Sent), email composition, context-aware AI-assisted email actions (drafting, searching/filtering, navigation, and reply/forward), multi-message threaded conversations, and real-time Gmail synchronization without requiring a manual browser refresh.
+
+> **Note on Render Free Tier**: The live deployment is hosted on Render's free tier. The service may spin down after periods of inactivity; the initial request after inactivity may take ~30–50 seconds while the web service wakes up.
+
+---
+
+## Screenshots
+
+Key application capabilities captured directly from the live production deployment on Render:
+
+### 1. Production Gmail Inbox
+![Production Gmail Inbox](submission-evidence/screenshots/Screenshot%202026-09-05%20153727.png)
+*Live production inbox on Render connected to Google Gmail, displaying real emails, unread counts, and the Nebula AI Copilot.*
+
+### 2. Email Detail
+![Email Detail View](submission-evidence/screenshots/Screenshot%202026-09-05%20153850.png)
+*Sanitized HTML email body rendering with complete header metadata (From, To, Date) and XSS security defense.*
+
+### 3. AI Compose & Human-in-the-Loop Send Confirmation
+![AI Compose](submission-evidence/screenshots/Screenshot%202026-09-05%20154158.png)
+*Natural-language email drafting via Nebula AI Copilot, automatically opening and populating the compose window.*
+
+![Human-in-the-Loop Send Confirmation](submission-evidence/screenshots/Screenshot%202026-09-05%20155120.png)
+*Security safeguard: Cryptographic one-time confirmation token requiring explicit user approval before AI can send any email.*
+
+### 4. AI Search / Filtering
+![AI Search & Filtering](submission-evidence/screenshots/Screenshot%202026-09-05%20154032.png)
+*Natural language search query ("emails from the last 10 days") dynamically filtering the live mailbox with an active filter badge and Clear button.*
+
+### 5. Gmail Thread View
+![Gmail Thread View](submission-evidence/screenshots/Screenshot%202026-09-05%20155130.png)
+*Chronological multi-message conversation thread with message count badge, individual message focus, and threaded AI replies.*
+
+### 6. Real-Time Gmail Synchronization
+![Real-Time Gmail Synchronization](submission-evidence/screenshots/Screenshot%202026-09-05%20153746.png)
+*Live push synchronization via Google Cloud Pub/Sub and SSE, instantly receiving incoming emails without manual page refresh.*
+
+---
+
 ## Security & Architecture Highlights
 
 1. **Server-Side Token Isolation**:
