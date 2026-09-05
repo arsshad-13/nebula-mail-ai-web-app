@@ -1,17 +1,30 @@
 # Nebula Mail - AI-Powered Mail Web Application
 
-An AI-ready, modern web email client connected to Google Gmail via the official Gmail API and OAuth 2.0. Built for the Nebula KnowLab hiring assignment.
+An AI-powered, modern web email client connected to Google Gmail via the official Gmail API, OAuth 2.0, OpenRouter AI, and Google Cloud Pub/Sub real-time synchronization. Built for the Nebula hiring assignment.
 
 ---
 
-## Current Status: Stage 2 - Real Mail Client Integration
+## Current Status: Production-Ready Mail Client with AI & Real-Time Sync
 
-The application integrates with real Gmail accounts via Google OAuth 2.0 and the Gmail REST API:
-- **Inbox**: Displays real received Gmail messages (sender, subject, snippet, date, unread indicator).
-- **Sent**: Displays real sent Gmail messages.
-- **Email Detail**: Displays full sanitized email body (HTML & plain-text support), headers, and attachment metadata.
-- **Zero Mock Data**: Strictly connects to real Gmail; does not use fake email fallbacks.
-- **Strict Scope Boundaries**: Stage 2 scope does not include AI, Compose/Send, or real-time webhooks.
+The application integrates with real Gmail accounts via Google OAuth 2.0 and the Gmail REST API with end-to-end features:
+
+- **Inbox & Sent Mailboxes**: Real Gmail messages with sender, recipient, subject, snippet, date, unread indicator, and attachment indicators.
+- **Email Detail Pane**: Full sanitized email body (HTML & plain text), headers (From, To, Cc, Date), and attachment metadata cards.
+- **Manual Compose & Send**: Compose modal with To, Subject, Body, client-side validation, server-side RFC 2822 formatting and CRLF injection defense, sending via `gmail.users.messages.send`.
+- **AI Mail Assistant (Co-Pilot)**:
+  - Powered by OpenRouter AI (`@openrouter/ai-sdk-provider`).
+  - **AI Compose**: Natural language drafting that opens Compose, populates To/Subject/Body, tracks dirty field states, and allows editing.
+  - **AI Search & Filtering**: Structured searches ("emails from the last 10 days", "from Sarah about project") that update the main mailbox list with an AI Filter banner and Clear button.
+  - **AI Navigate / Open**: "Open latest email from David" or "Open latest in Sent" finds the message via trusted Gmail timestamps and displays it.
+  - **Context-Aware Reply & Forward**: Context awareness of the currently selected email; drafts replies and forwards with conventional quoting without redundant searches.
+  - **Human-in-the-Loop Send Confirmation**: Cryptographic one-time confirmation token workflow ensuring the AI can never send an email without explicit human approval.
+- **Real-Time Push Synchronization**:
+  - Google Cloud Pub/Sub push notifications via Gmail `watch` API.
+  - Server-side webhook (`/api/webhooks/gmail`) with shared secret token verification and BigInt idempotency checks.
+  - Gmail History API (`users.history.list`) differential sync with automatic history expiry detection and recovery.
+  - Server-Sent Events (SSE) stream (`/api/mail/stream`) directly pushing `mail:new` events to the browser.
+  - Zero manual browser refresh required when new emails arrive.
+- **Strict Security Boundaries**: Zero tokens in the browser, file-backed server sessions, defense-in-depth HTML sanitization (`sanitize-html`), and zero mock/fake data.
 
 ---
 
@@ -21,89 +34,68 @@ The application integrates with real Gmail accounts via Google OAuth 2.0 and the
    - Access tokens and refresh tokens are stored securely on the server in a file-backed session store (`.sessions/`, git-ignored).
    - The browser receives **only an opaque session ID** stored in an `httpOnly`, `secure`, `sameSite: "lax"` cookie (`nebula_session_id`).
    - Tokens never enter browser JavaScript, React state, or `localStorage`.
-   - Automatic token renewal: When an access token nears expiry, the server refreshes it seamlessly via the refresh token and updates the session store.
+   - Automatic token renewal: When an access token nears expiry, the server refreshes it seamlessly via the refresh token.
 
 2. **OAuth CSRF Protection**:
    - Every OAuth authorization request generates a cryptographically random 32-byte `state` parameter stored in an ephemeral, encrypted HTTP-only cookie (`nebula_oauth_state`).
    - On redirect callback, the state is strictly validated before exchanging authorization codes.
 
-3. **Least-Privilege Scopes (Stage 2)**:
-   - Requests read-only access strictly required for mailbox inspection:
-     - `https://www.googleapis.com/auth/gmail.readonly`
-     - `https://www.googleapis.com/auth/userinfo.email`
-     - `https://www.googleapis.com/auth/userinfo.profile`
-   - *Note on Future Stages*: When email composition and AI action execution are implemented in subsequent stages, the application will request the appropriate write/send scope (`gmail.send` or `gmail.compose`).
+3. **Least-Privilege Scopes**:
+   - `https://www.googleapis.com/auth/gmail.readonly` (reading messages and history)
+   - `https://www.googleapis.com/auth/gmail.send` (sending outgoing emails)
+   - `https://www.googleapis.com/auth/userinfo.email` (identifying connected account)
+   - `https://www.googleapis.com/auth/userinfo.profile` (user display name and avatar)
 
 4. **Defense-in-Depth HTML Sanitization (XSS Defense)**:
    - Email HTML is sanitized on the server with `sanitize-html` before being returned to the client.
    - Discards all `<script>`, `<iframe>`, `<object>`, `<embed>`, and `<form>` tags.
    - Discards all inline event listeners (`onload`, `onerror`, `onclick`).
-   - Disallows `javascript:` schemes; forces `target="_blank"` and `rel="noopener noreferrer"` on all links.
+   - Disallows `javascript:` schemes; forces `target="_blank"` and `rel="noopener noreferrer nofollow"` on all links.
 
----
-
-## Google Cloud Setup Guide
-
-To run the application with your real Gmail account, configure a Google Cloud project with OAuth 2.0 credentials:
-
-### Step 1: Create or Select a Google Cloud Project
-1. Navigate to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a new project (e.g. `nebula-mail-app`) or select an existing project.
-
-### Step 2: Enable the Gmail API
-1. In the Google Cloud Console, go to **APIs & Services > Library**.
-2. Search for **Gmail API**.
-3. Click **Enable**.
-
-### Step 3: Configure the OAuth Consent Screen
-1. Go to **APIs & Services > OAuth consent screen**.
-2. Select **User Type**: **External** and click **Create**.
-3. Fill in the required fields:
-   - **App name**: `Nebula Mail`
-   - **User support email**: Your email address
-   - **Developer contact information**: Your email address
-4. On the **Scopes** step, add the following scopes:
-   - `.../auth/gmail.readonly`
-   - `.../auth/userinfo.email`
-   - `.../auth/userinfo.profile`
-5. On the **Test users** step:
-   - Add your own Gmail address as a test user (required while the app is in "Testing" mode).
-6. Save and finish.
-
-### Step 4: Create OAuth 2.0 Credentials
-1. Go to **APIs & Services > Credentials**.
-2. Click **Create Credentials** > **OAuth client ID**.
-3. Select **Application type**: **Web application**.
-4. Name: `Nebula Mail Web Client`.
-5. Under **Authorized JavaScript origins**, add:
-   - `http://localhost:3000`
-6. Under **Authorized redirect URIs**, add:
-   - `http://localhost:3000/api/auth/callback`
-7. Click **Create**.
-8. Copy the generated **Client ID** and **Client Secret**.
+5. **AI Safety & Send Boundaries**:
+   - Tool execution is strictly declarative; no AI tool can send emails directly.
+   - Sending requires a two-step cryptographic token handshake: `request_send_confirmation` emits a 5-minute single-use token, rendering an in-app confirmation banner that requires user click or explicit verbal confirmation.
 
 ---
 
 ## Environment Variables Configuration
 
-1. In the project root, create a file named `.env.local`:
-   ```bash
-   cp .env.example .env.local
-   ```
-2. Open `.env.local` and populate it with your Google credentials:
-   ```env
-   # Google OAuth 2.0 Credentials
-   GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-   GOOGLE_CLIENT_SECRET=your-google-client-secret
+Create `.env.local` in the project root:
 
-   # Google OAuth Redirect URI
-   GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback
+```env
+# Google OAuth 2.0 Credentials (Google Cloud Console)
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-   # Application URL
-   NEXT_PUBLIC_APP_URL=http://localhost:3000
-   ```
+# OpenRouter AI Provider
+OPENROUTER_API_KEY=your-openrouter-api-key
+AI_MODEL=openrouter/free
 
-*(Note: `.env.local` is git-ignored and will never be committed.)*
+# Google Cloud Pub/Sub & Real-Time Sync
+PUBSUB_TOPIC_NAME=projects/your-project-id/topics/your-topic-name
+PUBSUB_WEBHOOK_SECRET=your-random-webhook-secret-token
+```
+
+---
+
+## Google Cloud & Pub/Sub Setup Guide
+
+### 1. Enable APIs
+- Navigate to Google Cloud Console > **APIs & Services > Library**.
+- Enable **Gmail API** and **Cloud Pub/Sub API**.
+
+### 2. Configure OAuth 2.0
+- Set User Type to External, add scopes (`gmail.readonly`, `gmail.send`, `userinfo.email`, `userinfo.profile`).
+- Add test users while in Testing mode.
+- Create OAuth Web Application client ID with redirect URI: `http://localhost:3000/api/auth/callback`.
+
+### 3. Configure Real-Time Pub/Sub
+- Create a Cloud Pub/Sub Topic: `gmail-notifications`.
+- Grant publisher permission to Gmail: `gmail-api-push@system.gserviceaccount.com` with role **Pub/Sub Publisher**.
+- Create a Push Subscription targeting your publicly accessible webhook URL (via Cloudflare Tunnel, ngrok, or production domain):
+  - Push endpoint: `https://your-public-url.com/api/webhooks/gmail?token=YOUR_PUBSUB_WEBHOOK_SECRET`
 
 ---
 
@@ -114,26 +106,23 @@ To run the application with your real Gmail account, configure a Google Cloud pr
    npm install
    ```
 
-2. **Start the development server**:
+2. **Run tests**:
+   ```bash
+   npm test
+   ```
+
+3. **Start development server**:
    ```bash
    npm run dev
    ```
 
-3. **Open the application**:
-   Open [http://localhost:3000](http://localhost:3000) in your browser.
+4. **Production build**:
+   ```bash
+   npm run build
+   npm start
+   ```
 
-4. **Authenticate & Test**:
-   - Click **Connect with Google Gmail**.
-   - Sign in with the Gmail account you added as a test user in Google Cloud Console.
-   - Once authorized, you will be redirected to the 3-pane Mail Client.
-   - Inspect real messages in **Inbox** and **Sent**.
-   - Click on any message to view the full sanitized body, headers, and attachments.
-   - Click **Sign out** at the bottom of the sidebar to clear your server session and cookie.
-
----
-
-## Scripts
-
-- `npm run dev`: Starts local development server on port 3000.
-- `npm run build`: Compiles production build and runs TypeScript verification.
-- `npm run lint`: Runs ESLint checks.
+5. **Linting**:
+   ```bash
+   npm run lint
+   ```
