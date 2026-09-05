@@ -18,6 +18,7 @@ export interface EmailAttachment {
 export interface EmailMessage {
   id: string;
   threadId: string;
+  messageIdHeader?: string;
   from: EmailAddress;
   to: EmailAddress[];
   cc?: EmailAddress[];
@@ -79,6 +80,8 @@ export interface SendMailRequest {
   to: string;
   subject: string;
   body: string;
+  threadId?: string;
+  inReplyTo?: string;
 }
 
 /** Successful response from POST /api/gmail/send */
@@ -105,6 +108,8 @@ export interface ComposeState {
   to: ComposeField;
   subject: ComposeField;
   body: ComposeField;
+  threadId?: string;
+  inReplyTo?: string;
   isSending: boolean;
   sendError: string | null;
   sendSuccess: boolean;

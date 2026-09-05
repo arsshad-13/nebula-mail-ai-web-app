@@ -8,7 +8,7 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
-import { EmailMessage, MailFolder, MailLabel, ComposeState, SendMailRequest } from "@/types/mail";
+import { EmailMessage, EmailThread, MailFolder, MailLabel, ComposeState, SendMailRequest } from "@/types/mail";
 import { UiAction } from "@/types/ai";
 import { useAuth } from "./auth-context";
 
@@ -24,6 +24,7 @@ interface MailContextState {
   messages: EmailMessage[];
   selectedMessage: EmailMessage | null;
   selectedMessageId: string | null;
+  selectedThread: EmailThread | null;
   labels: MailLabel[];
   isLoading: boolean;
   isDetailLoading: boolean;
@@ -33,6 +34,7 @@ interface MailContextState {
   compose: ComposeState;
   setActiveFolder: (folder: MailFolder) => void;
   selectMessage: (id: string | null) => Promise<void>;
+  focusMessage: (message: EmailMessage) => void;
   refreshMail: () => Promise<void>;
   clearError: () => void;
   // Compose actions
@@ -56,6 +58,8 @@ const EMPTY_COMPOSE: ComposeState = {
   to: { value: "", dirty: false },
   subject: { value: "", dirty: false },
   body: { value: "", dirty: false },
+  threadId: undefined,
+  inReplyTo: undefined,
   isSending: false,
   sendError: null,
   sendSuccess: false,
@@ -69,6 +73,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<EmailMessage[]>([]);
   const [selectedMessage, setSelectedMessage] = useState<EmailMessage | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null);
   const [labels, setLabels] = useState<MailLabel[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDetailLoading, setIsDetailLoading] = useState<boolean>(false);
@@ -146,6 +151,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
     setActiveFolderState(folder);
     setSelectedMessage(null);
     setSelectedMessageId(null);
+    setSelectedThread(null);
     setAiFilterActive(false);
     setAiFilterLabel(null);
     setFilteredMessages(null);
@@ -160,6 +166,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
           setMessages([]);
           setSelectedMessage(null);
           setSelectedMessageId(null);
+          setSelectedThread(null);
           setError(null);
         }
       });
@@ -229,6 +236,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
     if (!id) {
       setSelectedMessageId(null);
       setSelectedMessage(null);
+      setSelectedThread(null);
       return;
     }
 
@@ -245,6 +253,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
       }
       const data = await res.json();
       setSelectedMessage(data.message);
+      setSelectedThread(data.thread || null);
 
       // Also mark as read locally in the messages list and filtered list if was unread
       setMessages((prev) =>
@@ -259,6 +268,11 @@ export function MailProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsDetailLoading(false);
     }
+  }, []);
+
+  const focusMessage = useCallback((message: EmailMessage) => {
+    setSelectedMessage(message);
+    setSelectedMessageId(message.id);
   }, []);
 
   const refreshMail = useCallback(async () => {
@@ -337,6 +351,12 @@ export function MailProvider({ children }: { children: ReactNode }) {
       // If user is viewing Sent, refresh immediately
       if (activeFolder === "sent") {
         void fetchMessages("sent");
+      } else {
+        void fetchMessages(activeFolder, true);
+      }
+
+      if (selectedMessageId) {
+        void selectMessage(selectedMessageId);
       }
 
       return true;
@@ -349,7 +369,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
       }));
       return false;
     }
-  }, [pendingAiSend, activeFolder, fetchMessages]);
+  }, [pendingAiSend, activeFolder, fetchMessages, selectedMessageId, selectMessage]);
 
   const updateComposeField = useCallback(
     (field: keyof Pick<ComposeState, "to" | "subject" | "body">, value: string) => {
@@ -396,12 +416,18 @@ export function MailProvider({ children }: { children: ReactNode }) {
           return false;
         }
 
-        // Success — close compose and re-fetch Sent to keep Gmail as source of truth
+        // Success — close compose and re-fetch mailbox to keep Gmail as source of truth
         setCompose(EMPTY_COMPOSE);
 
         // If the user is currently viewing Sent, refresh immediately so the new message appears
         if (activeFolder === "sent") {
           void fetchMessages("sent");
+        } else {
+          void fetchMessages(activeFolder, true);
+        }
+
+        if (selectedMessageId) {
+          void selectMessage(selectedMessageId);
         }
 
         return true;
@@ -415,7 +441,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
         return false;
       }
     },
-    [activeFolder, fetchMessages]
+    [activeFolder, fetchMessages, selectedMessageId, selectMessage]
   );
 
   // ---------------------------------------------------------------------------
@@ -451,6 +477,8 @@ export function MailProvider({ children }: { children: ReactNode }) {
                   value: payload.body !== undefined ? payload.body : prev.body.value,
                   dirty: false,
                 },
+                threadId: payload.threadId !== undefined ? payload.threadId : undefined,
+                inReplyTo: payload.inReplyTo !== undefined ? payload.inReplyTo : undefined,
                 isSending: false,
                 sendError: null,
                 sendSuccess: false,
@@ -548,6 +576,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
         messages: displayedMessages,
         selectedMessage,
         selectedMessageId,
+        selectedThread,
         labels,
         isLoading,
         isDetailLoading,
@@ -556,6 +585,7 @@ export function MailProvider({ children }: { children: ReactNode }) {
         compose,
         setActiveFolder,
         selectMessage,
+        focusMessage,
         refreshMail,
         clearError,
         openCompose,

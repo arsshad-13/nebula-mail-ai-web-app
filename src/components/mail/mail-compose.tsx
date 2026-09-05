@@ -61,8 +61,22 @@ export function MailCompose() {
       return;
     }
 
-    await sendMail({ to, subject, body });
-  }, [compose.to.value, compose.subject.value, compose.body.value, sendMail, updateComposeField]);
+    await sendMail({
+      to,
+      subject,
+      body,
+      threadId: compose.threadId,
+      inReplyTo: compose.inReplyTo,
+    });
+  }, [
+    compose.to.value,
+    compose.subject.value,
+    compose.body.value,
+    compose.threadId,
+    compose.inReplyTo,
+    sendMail,
+    updateComposeField,
+  ]);
 
   if (!compose.isOpen) return null;
 

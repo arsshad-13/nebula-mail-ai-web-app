@@ -70,10 +70,12 @@ export async function POST(req: NextRequest) {
   try {
     // Send via authoritative server-side message payload
     const result = await sendGmailMessage(sessionId, {
-      to: pending.to,
-      subject: pending.subject,
-      body: pending.body,
-    });
+       to: pending.to,
+       subject: pending.subject,
+       body: pending.body,
+       threadId: pending.threadId,
+       inReplyTo: pending.inReplyTo,
+     });
 
     return NextResponse.json({ success: true, ...result }, { status: 200 });
   } catch (err: unknown) {

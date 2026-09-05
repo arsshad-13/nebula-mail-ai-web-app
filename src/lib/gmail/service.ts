@@ -1,6 +1,6 @@
 import sanitizeHtml from "sanitize-html";
 import { getAuthenticatedGmailClient } from "./index";
-import { EmailAddress, EmailAttachment, EmailMessage, MailListResponse } from "@/types/mail";
+import { EmailAddress, EmailAttachment, EmailMessage, EmailThread, MailListResponse } from "@/types/mail";
 import { gmail_v1 } from "googleapis";
 
 /**
@@ -150,7 +150,7 @@ export function sanitizeEmailHtml(rawHtml: string): string {
 /**
  * Maps a Gmail API Message to our clean EmailMessage domain interface
  */
-function mapGmailMessageToDomain(
+export function mapGmailMessageToDomain(
   msg: gmail_v1.Schema$Message,
   includeBody = false
 ): EmailMessage {
@@ -165,6 +165,7 @@ function mapGmailMessageToDomain(
   const bccRaw = getHeader("Bcc");
   const subject = getHeader("Subject") || "(No Subject)";
   const dateRaw = getHeader("Date");
+  const messageIdRaw = getHeader("Message-ID");
 
   const labelIds = msg.labelIds || [];
   const isUnread = labelIds.includes("UNREAD");
@@ -194,6 +195,7 @@ function mapGmailMessageToDomain(
   return {
     id: msg.id || "",
     threadId: msg.threadId || "",
+    messageIdHeader: messageIdRaw ? messageIdRaw.trim() : undefined,
     from: parseEmailAddress(fromRaw),
     to: parseEmailAddressList(toRaw),
     cc: ccRaw ? parseEmailAddressList(ccRaw) : undefined,
@@ -252,7 +254,7 @@ export async function getFolderMessages(
           userId: "me",
           id: item.id!,
           format: "metadata",
-          metadataHeaders: ["From", "To", "Subject", "Date"],
+          metadataHeaders: ["From", "To", "Subject", "Date", "Message-ID"],
         });
         return mapGmailMessageToDomain(msgRes.data, false);
       } catch (err) {
@@ -292,17 +294,69 @@ export async function getMessageDetail(
 }
 
 /**
+ * Sorts messages chronologically by internalDate, with deterministic secondary ordering by id.
+ */
+export function sortThreadMessages(messages: EmailMessage[]): EmailMessage[] {
+  return [...messages].sort((a, b) => {
+    const timeA = BigInt(a.internalDate || "0");
+    const timeB = BigInt(b.internalDate || "0");
+    if (timeA < timeB) return -1;
+    if (timeA > timeB) return 1;
+    // Deterministic secondary ordering by message id if timestamps are identical
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/**
+ * Fetch full thread detail with all messages sorted chronologically and sanitized
+ */
+export async function getThreadDetail(
+  sessionId: string | null,
+  threadId: string
+): Promise<EmailThread> {
+  if (!threadId || typeof threadId !== "string" || !threadId.trim()) {
+    throw new Error("Thread ID is required.");
+  }
+
+  const auth = await getAuthenticatedGmailClient(sessionId);
+  if (!auth) {
+    throw new Error("Unauthenticated: Please connect your Gmail account.");
+  }
+
+  const { gmail } = auth;
+  const res = await gmail.users.threads.get({
+    userId: "me",
+    id: threadId.trim(),
+    format: "full",
+  });
+
+  const rawMessages = res.data.messages || [];
+  const mappedMessages = rawMessages.map((msg) =>
+    mapGmailMessageToDomain(msg, true)
+  );
+
+  const sortedMessages = sortThreadMessages(mappedMessages);
+
+  return {
+    id: res.data.id || threadId,
+    snippet: res.data.snippet ? sanitizeHtml(res.data.snippet, { allowedTags: [] }) : "",
+    historyId: res.data.historyId || undefined,
+    messages: sortedMessages,
+  };
+}
+
+/**
  * Validates that a string contains no CRLF characters.
  * Returns true if the value is safe, false if it contains \r or \n.
  */
-function isFreeCRLF(value: string): boolean {
+export function isFreeCRLF(value: string): boolean {
   return !value.includes("\r") && !value.includes("\n");
 }
 
 /**
  * Validates a basic email address format.
  */
-function isValidEmail(email: string): boolean {
+export function isValidEmail(email: string): boolean {
   // Basic RFC 5322 compatible check (no CRLF allowed)
   return /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email.trim());
 }
@@ -320,11 +374,68 @@ export interface SendGmailParams {
   to: string;
   subject: string;
   body: string;
+  threadId?: string;
+  inReplyTo?: string;
 }
 
 export interface SendGmailResult {
   messageId: string;
   threadId: string;
+}
+
+export interface MimeMessageOptions {
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+}
+
+/**
+ * Constructs an RFC 2822 MIME plain text message with strict CRLF defense.
+ * When inReplyTo is supplied, In-Reply-To and References headers are added.
+ */
+export function buildRFC2822Message(options: MimeMessageOptions): string {
+  const { from, to, subject, body, inReplyTo } = options;
+
+  if (!isFreeCRLF(to)) {
+    throw new Error(
+      "VALIDATION_ERROR: Recipient address contains invalid characters (CR/LF not allowed)."
+    );
+  }
+  if (!isFreeCRLF(subject)) {
+    throw new Error(
+      "VALIDATION_ERROR: Subject contains invalid characters (CR/LF not allowed)."
+    );
+  }
+  if (inReplyTo && !isFreeCRLF(inReplyTo)) {
+    throw new Error(
+      "VALIDATION_ERROR: In-Reply-To header contains invalid characters (CR/LF not allowed)."
+    );
+  }
+
+  const mimeLines = [
+    `From: ${from}`,
+    `To: ${to.trim()}`,
+    `Subject: ${encodeRFC2047(subject)}`,
+  ];
+
+  if (inReplyTo && typeof inReplyTo === "string" && inReplyTo.trim() !== "") {
+    const stripped = inReplyTo.trim().replace(/^<+|>+$/g, "");
+    const cleanInReplyTo = `<${stripped}>`;
+    mimeLines.push(`In-Reply-To: ${cleanInReplyTo}`);
+    mimeLines.push(`References: ${cleanInReplyTo}`);
+  }
+
+  mimeLines.push(
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    `Content-Transfer-Encoding: 7bit`,
+    ``,
+    body
+  );
+
+  return mimeLines.join("\r\n");
 }
 
 /**
@@ -333,10 +444,12 @@ export interface SendGmailResult {
  * Client must never provide a From field.
  *
  * Security:
- * - Rejects any request where `to` or `subject` contain CRLF characters (no stripping — reject).
+ * - Rejects any request where `to`, `subject`, or `inReplyTo` contain CRLF characters (no stripping — reject).
  * - Validates recipient email format.
  * - Derives sender strictly from server-side session user identity.
  * - Never logs or exposes OAuth tokens or secrets.
+ * - If threadId is provided, binds the message into the specified Gmail conversation thread.
+ * - If inReplyTo is provided, sets In-Reply-To and References headers for proper RFC 2822 threading.
  */
 export async function sendGmailMessage(
   sessionId: string | null,
@@ -348,7 +461,7 @@ export async function sendGmailMessage(
   }
 
   const { gmail, user } = auth;
-  const { to, subject, body } = params;
+  const { to, subject, body, threadId, inReplyTo } = params;
 
   // CRLF Injection Defense: Reject (do NOT strip) any value containing \r or \n
   if (!isFreeCRLF(to)) {
@@ -359,6 +472,11 @@ export async function sendGmailMessage(
   if (!isFreeCRLF(subject)) {
     throw new Error(
       "VALIDATION_ERROR: Subject contains invalid characters (CR/LF not allowed)."
+    );
+  }
+  if (inReplyTo && !isFreeCRLF(inReplyTo)) {
+    throw new Error(
+      "VALIDATION_ERROR: In-Reply-To header contains invalid characters (CR/LF not allowed)."
     );
   }
 
@@ -373,26 +491,27 @@ export async function sendGmailMessage(
   const fromHeader = `${fromName} <${fromEmail}>`;
 
   // Construct RFC 2822 MIME message
-  const mimeLines = [
-    `From: ${fromHeader}`,
-    `To: ${to.trim()}`,
-    `Subject: ${encodeRFC2047(subject)}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: text/plain; charset=UTF-8`,
-    `Content-Transfer-Encoding: 7bit`,
-    ``,
+  const rawMessage = buildRFC2822Message({
+    from: fromHeader,
+    to,
+    subject,
     body,
-  ];
-  const rawMessage = mimeLines.join("\r\n");
+    inReplyTo,
+  });
 
   // Encode to base64url as required by the Gmail API
   const encodedMessage = Buffer.from(rawMessage, "utf-8").toString("base64url");
 
+  const requestBody: { raw: string; threadId?: string } = {
+    raw: encodedMessage,
+  };
+  if (threadId && typeof threadId === "string" && threadId.trim() !== "") {
+    requestBody.threadId = threadId.trim();
+  }
+
   const sendRes = await gmail.users.messages.send({
     userId: "me",
-    requestBody: {
-      raw: encodedMessage,
-    },
+    requestBody,
   });
 
   return {

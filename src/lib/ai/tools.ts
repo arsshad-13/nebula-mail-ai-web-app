@@ -333,6 +333,8 @@ export function createAiTools(ctx: ToolContext) {
             to: replyTo,
             subject: replySubject,
             body: fullReplyBody,
+            threadId: selected.threadId,
+            inReplyTo: selected.messageIdHeader,
           },
         });
 
@@ -508,6 +510,8 @@ export function createAiTools(ctx: ToolContext) {
           to: effectiveTo,
           subject: effectiveSubject,
           body: effectiveBody,
+          threadId: ctx.appContext?.selectedEmail?.threadId,
+          inReplyTo: ctx.appContext?.selectedEmail?.messageIdHeader,
         });
 
         // Record UI action to display confirmation prompt

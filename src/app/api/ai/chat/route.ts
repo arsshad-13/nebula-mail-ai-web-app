@@ -11,7 +11,7 @@ import { AiChatResponse, UiAction } from "@/types/ai";
  * Request validation schema for POST /api/ai/chat.
  * Does NOT accept sessionId from body. Session is obtained strictly from HTTP-only cookie.
  */
-const chatRequestSchema = z.object({
+export const chatRequestSchema = z.object({
   messages: z
     .array(
       z.object({
@@ -26,6 +26,8 @@ const chatRequestSchema = z.object({
     selectedEmail: z
       .object({
         id: z.string(),
+        threadId: z.string().optional(),
+        messageIdHeader: z.string().optional(),
         subject: z.string(),
         from: z.object({
           name: z.string().optional(),

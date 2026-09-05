@@ -23,7 +23,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { to?: unknown; subject?: unknown; body?: unknown };
+  let body: {
+    to?: unknown;
+    subject?: unknown;
+    body?: unknown;
+    threadId?: unknown;
+    inReplyTo?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { to, subject, body: emailBody } = body;
+  const { to, subject, body: emailBody, threadId: rawThreadId, inReplyTo: rawInReplyTo } = body;
 
   // Validate presence of required fields
   if (typeof to !== "string" || to.trim() === "") {
@@ -75,11 +81,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const threadId =
+    typeof rawThreadId === "string" && rawThreadId.trim() !== ""
+      ? rawThreadId.trim()
+      : undefined;
+
+  const inReplyTo =
+    typeof rawInReplyTo === "string" && rawInReplyTo.trim() !== ""
+      ? rawInReplyTo.trim()
+      : undefined;
+
+  if (inReplyTo && inReplyTo.length > 998) {
+    return NextResponse.json(
+      { error: "Validation error: 'inReplyTo' header is too long." },
+      { status: 400 }
+    );
+  }
+
   try {
     const result = await sendGmailMessage(sessionId, {
       to: to.trim(),
       subject: subject.trim(),
       body: emailBody,
+      threadId,
+      inReplyTo,
     });
 
     return NextResponse.json({ success: true, ...result }, { status: 200 });

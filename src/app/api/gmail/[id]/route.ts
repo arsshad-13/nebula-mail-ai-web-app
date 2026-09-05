@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionIdFromCookies } from "@/lib/auth/cookies";
-import { getMessageDetail } from "@/lib/gmail/service";
+import { getMessageDetail, getThreadDetail } from "@/lib/gmail/service";
+import { EmailThread } from "@/types/mail";
 
 export async function GET(
   request: NextRequest,
@@ -28,7 +29,19 @@ export async function GET(
 
     const message = await getMessageDetail(sessionId, id);
 
-    return NextResponse.json({ message });
+    let thread: EmailThread | null = null;
+    if (message.threadId) {
+      try {
+        thread = await getThreadDetail(sessionId, message.threadId);
+      } catch (threadErr) {
+        console.warn(
+          `[api/gmail] Failed to fetch thread ${message.threadId} for message ${id}:`,
+          (threadErr as Error).message
+        );
+      }
+    }
+
+    return NextResponse.json({ message, thread });
   } catch (error) {
     console.error("Failed to fetch message detail:", error);
     const message = (error as Error).message || "Failed to fetch message detail";

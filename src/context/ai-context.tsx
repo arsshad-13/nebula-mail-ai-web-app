@@ -125,6 +125,8 @@ export function AIProvider({ children }: { children: ReactNode }) {
           selectedEmail: currentState.selectedMessage
             ? {
                 id: currentState.selectedMessage.id,
+                threadId: currentState.selectedMessage.threadId,
+                messageIdHeader: currentState.selectedMessage.messageIdHeader,
                 subject: currentState.selectedMessage.subject || "(No Subject)",
                 from: {
                   name: currentState.selectedMessage.from?.name,

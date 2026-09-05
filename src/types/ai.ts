@@ -27,6 +27,8 @@ export interface OpenComposeAction {
     to?: string;
     subject?: string;
     body?: string;
+    threadId?: string;
+    inReplyTo?: string;
   };
 }
 
@@ -140,6 +142,8 @@ export interface AppContext {
    */
   selectedEmail: {
     id: string;
+    threadId?: string;
+    messageIdHeader?: string;
     subject: string;
     from: { name?: string; email: string };
     to: { name?: string; email: string }[];

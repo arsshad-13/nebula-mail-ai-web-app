@@ -6,6 +6,8 @@ export interface PendingSendRecord {
   to: string;
   subject: string;
   body: string;
+  threadId?: string;
+  inReplyTo?: string;
   createdAt: number;
   expiresAt: number;
   used: boolean;
@@ -13,7 +15,7 @@ export interface PendingSendRecord {
 
 /**
  * In-memory store for short-lived, session-bound pending send authorizations.
- *authoritative email contents (to, subject, body) remain strictly on the server.
+ * Authoritative email contents (to, subject, body, threadId) remain strictly on the server.
  */
 const pendingSendsMap = new Map<string, PendingSendRecord>();
 
@@ -37,7 +39,7 @@ function pruneExpired() {
  */
 export function createPendingSend(
   sessionId: string,
-  params: { to: string; subject: string; body: string }
+  params: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string }
 ): PendingSendRecord {
   pruneExpired();
 
@@ -50,6 +52,8 @@ export function createPendingSend(
     to: params.to.trim(),
     subject: params.subject.trim(),
     body: params.body,
+    threadId: params.threadId,
+    inReplyTo: params.inReplyTo,
     createdAt: now,
     expiresAt: now + TTL_MS,
     used: false,
@@ -67,7 +71,7 @@ export function createPendingSend(
 export function verifyAndConsumePendingSend(
   sessionId: string,
   token: string
-): { to: string; subject: string; body: string } | null {
+): { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string } | null {
   const record = pendingSendsMap.get(token);
 
   if (!record) {
@@ -99,6 +103,8 @@ export function verifyAndConsumePendingSend(
     to: record.to,
     subject: record.subject,
     body: record.body,
+    threadId: record.threadId,
+    inReplyTo: record.inReplyTo,
   };
 }
 
