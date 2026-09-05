@@ -28,6 +28,26 @@ The application integrates with real Gmail accounts via Google OAuth 2.0 and the
 
 ---
 
+## Demo
+
+### Video Demo
+
+[Watch the Nebula Mail Demo](https://drive.google.com/file/d/11UM6vDEhvFkK1j03gtbKFNY99h8N55tI/view?usp=drive_link)
+
+The demo covers the key hiring-task requirements:
+
+- Real Gmail Inbox and Sent integration
+- Email detail view with real Gmail content
+- Manual email composition and sending
+- AI-powered email composition from natural-language instructions
+- AI-powered email search and filtering
+- AI-powered email navigation and opening
+- Context-aware AI reply and forward
+- Human-in-the-loop confirmation before AI-initiated sending
+- Real-time Gmail synchronization without manually refreshing the application
+
+---
+
 ## Security & Architecture Highlights
 
 1. **Server-Side Token Isolation**:
